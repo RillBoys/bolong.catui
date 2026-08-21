@@ -36,6 +36,8 @@ end
 
 local placeId = game.PlaceId
 
+task.wait(2)
+
 local function SanitizeConfigName(name)
     name = tostring(name or "")
     name = name:gsub("[^%w_ ]", "")
@@ -85,13 +87,17 @@ end
 
 local function FindGameFolder()
     if not listfolders then return nil end
-    local ok, dirs = pcall(listfolders, BOLONG_ROOT)
-    if not ok or type(dirs) ~= "table" then return nil end
-    for _, folder in ipairs(dirs) do
-        local meta = ReadMetaFile(folder)
-        if meta and meta.PlaceId == placeId then
-            return tostring(folder)
+    for attempt = 1, 5 do
+        local ok, dirs = pcall(listfolders, BOLONG_ROOT)
+        if ok and type(dirs) == "table" then
+            for _, folder in ipairs(dirs) do
+                local meta = ReadMetaFile(folder)
+                if meta and tonumber(meta.PlaceId) == tonumber(placeId) then
+                    return tostring(folder)
+                end
+            end
         end
+        if attempt < 5 then task.wait(1) end
     end
     return nil
 end
@@ -107,10 +113,11 @@ if not gameName then
         end
         return nil
     end
-    local fetched = FetchGameName()
-    if not fetched then
-        task.wait(3)
+    local fetched = nil
+    for attempt = 1, 5 do
         fetched = FetchGameName()
+        if fetched then break end
+        if attempt < 5 then task.wait(2 + attempt) end
     end
     if fetched then
         local nameFolder = SanitizeConfigName(fetched)
@@ -5927,6 +5934,17 @@ function Chloex:Window(GuiConfig)
                         GuiFunc:ExportConfig()
                     end,
                 })
+
+                task.spawn(function()
+                    for _ = 1, 5 do
+                        task.wait(1)
+                        local list = GuiFunc:GetConfigs()
+                        if #list > 0 then
+                            RefreshList()
+                            break
+                        end
+                    end
+                end)
 
                 return { Refresh = RefreshList }
             end
