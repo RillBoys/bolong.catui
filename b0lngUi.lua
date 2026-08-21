@@ -36,8 +36,6 @@ end
 
 local placeId = game.PlaceId
 
-task.wait(2)
-
 local function SanitizeConfigName(name)
     name = tostring(name or "")
     name = name:gsub("[^%w_ ]", "")
