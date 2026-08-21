@@ -1390,6 +1390,35 @@ local function RunKeySystemGate(KeyConfig, AccentColor, ScopeName)
         end
     end
 
+    local _genv = (getgenv and getgenv()) or {}
+    local genvKey = _genv.SCRIPT_KEY
+    if genvKey and type(genvKey) == "string" and Trim(genvKey) ~= "" then
+        if JunkieActive then
+            if not JunkieLoadErr then
+                local passed, done = false, false
+                task.spawn(function()
+                    local ok2, result = pcall(function()
+                        return JunkieCheckKey(Trim(genvKey))
+                    end)
+                    passed = ok2 and type(result) == "table" and result.valid == true
+                    done = true
+                end)
+                local deadline = 0
+                while not done and deadline < 200 do
+                    task.wait(0.1)
+                    deadline = deadline + 1
+                end
+                if passed then
+                    SaveValidKey(Trim(genvKey))
+                    return true
+                end
+            end
+        elseif IsValidKey(Trim(genvKey)) then
+            SaveValidKey(Trim(genvKey))
+            return true
+        end
+    end
+
     local BKey = Instance.new("ScreenGui")
     BKey.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     BKey.Name = "BKeySystem"
