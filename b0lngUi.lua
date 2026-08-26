@@ -224,7 +224,7 @@ function SaveConfig(force)
     if ApplyingConfig and not force then return false end
     if not force and not AutoSaveEnabled then return false end
 
-    local target = ActiveConfigPath or ConfigFile
+    local target = ActiveConfigPath or GetAccountBaseFile()
     if not target or target == "" then return false end
 
     local snapshot = GetConfigSnapshot()
@@ -234,9 +234,13 @@ function SaveConfig(force)
         return false
     end
 
+    if IsEmptySnapshot(snapshot) and TryReadConfig(target, 1) ~= nil then
+        warn("[BolongUi] Skip save: snapshot kosong, mencegah timpa '" .. tostring(ActiveConfigName or target) .. "'")
+        return false
+    end
+
     ConfigData = snapshot
-    writefile(target, encoded)
-    return true
+    return SafeWriteConfig(target, encoded)
 end
 
 function QueueSaveConfig(force)
@@ -252,52 +256,149 @@ function QueueSaveConfig(force)
     return true
 end
 
+local function TryReadConfig(path, retries)
+    if not (readfile and isfile) then return nil end
+    retries = retries or 3
+    for attempt = 1, retries do
+        local okFile, raw = pcall(function()
+            if isfile(path) then return readfile(path) end
+            return nil
+        end)
+        if okFile and type(raw) == "string" and raw ~= "" then
+            local okDec, dec = pcall(function()
+                return HttpService:JSONDecode(raw)
+            end)
+            if okDec and type(dec) == "table" then
+                return dec
+            end
+        end
+        if attempt < retries then task.wait(0.25 * attempt) end
+    end
+    return nil
+end
+
+local function SafeWriteConfig(path, encoded)
+    if not writefile then return false end
+    EnsureFolderForFile(path)
+    for attempt = 1, 3 do
+        local ok = pcall(writefile, path, encoded)
+        if ok then
+            local check = TryReadConfig(path, 1)
+            if check ~= nil then return true end
+        end
+        if attempt < 3 then task.wait(0.2 * attempt) end
+    end
+    return false
+end
+
+local function IsEmptySnapshot(snapshot)
+    if type(snapshot) ~= "table" then return true end
+    local count = 0
+    for key in pairs(snapshot) do
+        if key ~= "_version" then count = count + 1 end
+    end
+    return count == 0
+end
+
+local AccountAutoLoadEnabledPending = false
+local ActiveAccountIdOverride = nil
+
+local function GetCurrentAccountId()
+    if ActiveAccountIdOverride then return tostring(ActiveAccountIdOverride) end
+    local ok, id = pcall(function()
+        local lp = game:GetService("Players").LocalPlayer
+        return lp and lp.UserId or 0
+    end)
+    if not ok then return "0" end
+    return tostring(id or 0)
+end
+
+local function GetAccountBaseFile()
+    if AccountAutoLoadEnabledPending then
+        return GameConfigFolder .. "/_base." .. GetCurrentAccountId() .. ".json"
+    end
+    return ConfigFile
+end
+
+local ACCOUNT_AUTOLOAD_FILE = "_account_autoload.json"
+
+local function GetAccountAutoLoadInfo()
+    local info = { Enabled = false, Accounts = {} }
+    if not isfolder(GameConfigFolder) then return info end
+    local data = TryReadConfig(GameConfigFolder .. "/" .. ACCOUNT_AUTOLOAD_FILE, 3)
+    if data then
+        info.Enabled = data.Enabled == true
+        if type(data.Accounts) == "table" then
+            for id, name in pairs(data.Accounts) do
+                info.Accounts[tostring(id)] = tostring(name or "")
+            end
+        end
+    end
+    return info
+end
+
+local function WriteAccountAutoLoadInfo(info)
+    if not writefile then return false end
+    EnsureConfigFolder()
+    local clean = {
+        Enabled = info.Enabled == true,
+        Accounts = {},
+    }
+    if type(info.Accounts) == "table" then
+        for id, name in pairs(info.Accounts) do
+            if tostring(name or "") ~= "" then
+                clean.Accounts[tostring(id)] = tostring(name)
+            end
+        end
+    end
+    local ok, encoded = pcall(function() return HttpService:JSONEncode(clean) end)
+    if not ok then return false end
+    return SafeWriteConfig(GameConfigFolder .. "/" .. ACCOUNT_AUTOLOAD_FILE, encoded)
+end
+
 function LoadConfigFromFile()
     if not CURRENT_VERSION then return end
     ConfigData = { _version = CURRENT_VERSION }
     SetActiveConfig(nil, nil, nil, nil)
 
+    local accountInfo = GetAccountAutoLoadInfo()
+    AccountAutoLoadEnabledPending = accountInfo.Enabled == true
+
     local autoName = ""
-    local autoPath = GameConfigFolder .. "/_autoload.json"
-    if isfile and isfile(autoPath) then
-        local ok, auto = pcall(function()
-            return HttpService:JSONDecode(readfile(autoPath))
-        end)
-        if ok and type(auto) == "table" then
-            autoName = tostring(auto.Name or "")
+    if AccountAutoLoadEnabledPending then
+        local bound = tostring(accountInfo.Accounts[GetCurrentAccountId()] or "")
+        if bound ~= "" then
+            autoName = bound
+        end
+    else
+        local autoData = TryReadConfig(GameConfigFolder .. "/_autoload.json", 3)
+        if autoData then
+            autoName = tostring(autoData.Name or "")
         end
     end
 
-    local configPath = GameConfigFolder .. "/" .. autoName .. ".json"
-    if autoName ~= "" and isfile and isfile(configPath) then
-        local success, result = pcall(function()
-            return HttpService:JSONDecode(readfile(configPath))
-        end)
-        if success and type(result) == "table" then
+    if autoName ~= "" then
+        local result = TryReadConfig(GameConfigFolder .. "/" .. autoName .. ".json", 3)
+        if result then
             ConfigData = result
             ConfigData._version = CURRENT_VERSION
+            SetActiveConfig(autoName, GameConfigFolder .. "/" .. autoName .. ".json", nil, "autoload")
             return
         end
+        task.spawn(function()
+            warn("[BolongUi] Config '" .. autoName .. "' gagal dibaca setelah retry, pakai config dasar")
+        end)
     end
 
-    
-    
-    if isfile and isfile(ConfigFile) then
-        local ok, raw = pcall(readfile, ConfigFile)
-        if ok then
-            local okDec, base = pcall(function()
-                return HttpService:JSONDecode(raw)
-            end)
-            if okDec and type(base) == "table" then
-                if type(base.Data) == "table" then base = base.Data end
-                for key, value in pairs(base) do
-                    if key ~= "_version" and not InternalConfigKeys[key] then
-                        ConfigData[key] = value
-                    end
-                end
-                ConfigData._version = CURRENT_VERSION
+    local baseData = TryReadConfig(GetAccountBaseFile(), 4)
+    if baseData then
+        if type(baseData.Data) == "table" then baseData = baseData.Data end
+        for key, value in pairs(baseData) do
+            if key ~= "_version" and not InternalConfigKeys[key] then
+                ConfigData[key] = value
             end
         end
+        ConfigData._version = CURRENT_VERSION
     end
 end
 
@@ -1942,6 +2043,11 @@ function Chloex:Window(GuiConfig)
     end
 
     local function ApplyConfigData(data)
+        if IsEmptySnapshot(data) then
+            warn("[BolongUi] ApplyConfigData dilewati: data config kosong")
+            return false
+        end
+
         ApplyingConfig = true
         ConfigData = { _version = CURRENT_VERSION }
 
@@ -1959,6 +2065,7 @@ function Chloex:Window(GuiConfig)
 
         ConfigData._version = CURRENT_VERSION
         ApplyingConfig = false
+        return true
     end
 
     function GuiFunc:ExportConfig()
@@ -2018,7 +2125,7 @@ function Chloex:Window(GuiConfig)
         EnsureConfigFolder()
         for _, f in ipairs(listfiles(GameConfigFolder)) do
             local n = string.match(f, "([^/\\]+)%.json$")
-            if n and not InternalFileNames[n] then
+            if n and string.sub(n, 1, 1) ~= "_" and not InternalFileNames[n] then
                 table.insert(out, n)
             end
         end
@@ -2034,14 +2141,18 @@ function Chloex:Window(GuiConfig)
         EnsureConfigFolder()
         local path = GameConfigFolder .. "/" .. name .. ".json"
 
-        local ok, encoded = pcall(function() return HttpService:JSONEncode(GetConfigSnapshot()) end)
+        local snapshot = GetConfigSnapshot()
+        local ok, encoded = pcall(function() return HttpService:JSONEncode(snapshot) end)
         if not ok then
             warn("SaveConfigAs failed to encode config:", encoded)
             than("Failed to save config", 4, Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
             return false
         end
 
-        writefile(path, encoded)
+        if not SafeWriteConfig(path, encoded) then
+            than("Gagal menyimpan '" .. tostring(name) .. "'", 4, Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
+            return false
+        end
         SetActiveConfig(name, path, nil, "saved")
         than("Saved '" .. name .. "'", 4, GuiConfig.Color, "BolongHub", "Config")
         return true
@@ -2051,12 +2162,12 @@ function Chloex:Window(GuiConfig)
         if not name or name == "" then return false end
         local path = GameConfigFolder .. "/" .. name .. ".json"
         if not (isfile and isfile(path)) then
-            than("Config '" .. tostring(name) .. "' not found", 4, Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
+            than("Config '" .. tostring(name) .. "' tidak ditemukan", 4, Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
             return false
         end
-        local ok, dec = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
-        if not ok or type(dec) ~= "table" then
-            than("Failed to read config", 4, Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
+        local dec = TryReadConfig(path, 3)
+        if not dec then
+            than("Gagal membaca config '" .. tostring(name) .. "'", 4, Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
             return false
         end
         local data = ExtractConfigPayload(dec)
@@ -2081,6 +2192,17 @@ function Chloex:Window(GuiConfig)
             if GuiFunc:GetAutoLoad() == name then
                 GuiFunc:SetAutoLoad("")
             end
+
+            local accInfo = GetAccountAutoLoadInfo()
+            local changed = false
+            for id, cfgName in pairs(accInfo.Accounts) do
+                if cfgName == name then
+                    accInfo.Accounts[id] = nil
+                    changed = true
+                end
+            end
+            if changed then WriteAccountAutoLoadInfo(accInfo) end
+
             than("Deleted '" .. name .. "'", 4, Color3.fromRGB(255, 170, 0), "BolongHub", "Config")
             return true
         end
@@ -2101,6 +2223,44 @@ function Chloex:Window(GuiConfig)
             if ok and type(dec) == "table" then return dec.Name or "" end
         end
         return ""
+    end
+
+    function GuiFunc:GetAccountAutoLoadInfo()
+        return GetAccountAutoLoadInfo()
+    end
+
+    function GuiFunc:WriteAccountAutoLoadInfo(info)
+        return WriteAccountAutoLoadInfo(info)
+    end
+
+    function GuiFunc:GetCurrentAccountId()
+        return GetCurrentAccountId()
+    end
+
+    function GuiFunc:SetAccountAutoLoad(accountId, configName)
+        accountId = tostring(accountId or GetCurrentAccountId())
+        local info = GetAccountAutoLoadInfo()
+        if configName and configName ~= "" then
+            info.Accounts[accountId] = tostring(configName)
+        else
+            info.Accounts[accountId] = nil
+        end
+        if not WriteAccountAutoLoadInfo(info) then
+            than("Failed to save account mapping", 4, Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
+            return false
+        end
+        return true
+    end
+
+    function GuiFunc:SetAccountAutoLoadEnabled(value)
+        local info = GetAccountAutoLoadInfo()
+        info.Enabled = value == true
+        if not WriteAccountAutoLoadInfo(info) then
+            than("Failed to save per-account status", 4, Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
+            return false
+        end
+        AccountAutoLoadEnabledPending = info.Enabled
+        return true
     end
 
     local BHub = Instance.new("ScreenGui");
@@ -5902,6 +6062,95 @@ function Chloex:Window(GuiConfig)
                 })
                 initializingAutoToggle = false
 
+                -- ===== Auto Load Per Akun =====
+                local accInfo = GuiFunc:GetAccountAutoLoadInfo()
+                local accId = GuiFunc:GetCurrentAccountId()
+
+                local AccStatus = Items:AddParagraph({
+                    Title = "Auto Load Per Akun",
+                    Content = "Account ID: " .. accId,
+                })
+
+                local function UpdateAccStatus()
+                    local info = GuiFunc:GetAccountAutoLoadInfo()
+                    local bound = tostring(info.Accounts[accId] or "")
+                    local text = "Account ID: " .. accId
+                    if bound ~= "" then
+                        text = text .. "\nBound to: " .. bound
+                    else
+                        text = text .. "\nNot set, no autoload for this account"
+                    end
+                    text = text .. "\nStatus: " .. (info.Enabled and "ON" or "OFF")
+                    if AccStatus and AccStatus.SetContent then
+                        AccStatus:SetContent(text)
+                    end
+                end
+                UpdateAccStatus()
+
+                local AccToggle
+                local initializingAccToggle = true
+                AccToggle = Items:AddToggle({
+                    Title    = "Enable Per-Account Autoload",
+                    Content  = "Load config berbeda per Roblox account / cocok untuk multi-instance di satu device",
+                    Default  = accInfo.Enabled == true,
+                    Save     = false,
+                    Callback = function(value)
+                        if initializingAccToggle then return end
+                        if not GuiFunc:SetAccountAutoLoadEnabled(value) then
+                            if AccToggle then AccToggle:Set(not value, true) end
+                            return
+                        end
+                        if value then
+                            than("Per-Account Autoload enabled", 4, GuiConfig.Color, "BolongHub", "Config")
+                        else
+                            than("Per-Account Autoload disabled, fallback ke legacy autoload", 4, Color3.fromRGB(255, 170, 0), "BolongHub", "Config")
+                        end
+                        UpdateAccStatus()
+                    end,
+                })
+                initializingAccToggle = false
+
+                local selectedAccConfig = tostring(accInfo.Accounts[accId] or "") ~= ""
+                    and tostring(accInfo.Accounts[accId]) or nil
+
+                local AccConfigList = Items:AddDropdown({
+                    Title    = "Config untuk Account Ini",
+                    Content  = "Pilih config yang akan di-load untuk account " .. accId,
+                    Multi    = false,
+                    Options  = GuiFunc:GetConfigs(),
+                    Default  = selectedAccConfig or "",
+                    Save     = false,
+                    Callback = function(choice)
+                        selectedAccConfig = choice ~= "" and choice or nil
+                    end,
+                })
+
+                Items:AddButton({
+                    Title    = "Set untuk Account Ini",
+                    SubTitle = "Clear Binding",
+                    Callback = function()
+                        if not selectedAccConfig then
+                            than("Silakan pilih config terlebih dahulu", 4, Color3.fromRGB(255, 170, 0), "BolongHub", "Config")
+                            return
+                        end
+                        if GuiFunc:SetAccountAutoLoad(accId, selectedAccConfig) then
+                            than("Account " .. accId .. " -> '" .. selectedAccConfig .. "'", 4, GuiConfig.Color, "BolongHub", "Config")
+                            UpdateAccStatus()
+                        end
+                    end,
+                    SubCallback = function()
+                        if GuiFunc:SetAccountAutoLoad(accId, nil) then
+                            selectedAccConfig = nil
+                            if AccConfigList and AccConfigList.Set then
+                                AccConfigList:Set("", true)
+                            end
+                            than("Binding untuk account " .. accId .. " berhasil dihapus", 4, Color3.fromRGB(255, 170, 0), "BolongHub", "Config")
+                            UpdateAccStatus()
+                        end
+                    end,
+                })
+                -- ===== End Auto Load Per Akun =====
+
                 local ImportInput = Items:AddInput({
                     Title       = "Import JSON",
                     Content     = "Paste exported config",
@@ -5939,6 +6188,9 @@ function Chloex:Window(GuiConfig)
                         local list = GuiFunc:GetConfigs()
                         if #list > 0 then
                             RefreshList()
+                            if AccConfigList and AccConfigList.SetValues then
+                                AccConfigList:SetValues(list, selectedAccConfig or "", true)
+                            end
                             break
                         end
                     end
@@ -7052,10 +7304,33 @@ function Items:AddDivider()
 
     task.spawn(function()
         task.wait(0.5)
-        local autoName = GuiFunc:GetAutoLoad()
-        if autoName and autoName ~= "" then
-            GuiFunc:LoadConfigByName(autoName)
+
+        local targetName = ""
+        local accountInfo = GetAccountAutoLoadInfo()
+        if accountInfo.Enabled then
+            local bound = tostring(accountInfo.Accounts[GetCurrentAccountId()] or "")
+            if bound ~= "" then
+                targetName = bound
+            end
+        else
+            targetName = GuiFunc:GetAutoLoad()
         end
+
+        if not targetName or targetName == "" then return end
+
+        for attempt = 1, 4 do
+            if GuiFunc:LoadConfigByName(targetName) then
+                if attempt > 1 then
+                    than("Config '" .. targetName .. "' dimuat (percobaan ke-" .. attempt .. ")", 4,
+                        Color3.fromRGB(255, 170, 0), "BolongHub", "Config")
+                end
+                return
+            end
+            task.wait(1)
+        end
+
+        than("Gagal auto load '" .. targetName .. "' setelah beberapa percobaan", 6,
+            Color3.fromRGB(255, 90, 90), "BolongHub", "Config")
     end)
 
     return Tabs
