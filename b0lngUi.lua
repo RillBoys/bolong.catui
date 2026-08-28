@@ -219,43 +219,6 @@ local function EnsureDefaultConfig()
     WriteMetaFile(gameName, meta)
 end
 
-function SaveConfig(force)
-    if not writefile or not CURRENT_VERSION then return false end
-    if ApplyingConfig and not force then return false end
-    if not force and not AutoSaveEnabled then return false end
-
-    local target = ActiveConfigPath or GetAccountBaseFile()
-    if not target or target == "" then return false end
-
-    local snapshot = GetConfigSnapshot()
-    local ok, encoded = pcall(function() return HttpService:JSONEncode(snapshot) end)
-    if not ok then
-        warn("SaveConfig failed to encode config:", encoded)
-        return false
-    end
-
-    if IsEmptySnapshot(snapshot) and TryReadConfig(target, 1) ~= nil then
-        warn("[BolongUi] Skip save: snapshot kosong, mencegah timpa '" .. tostring(ActiveConfigName or target) .. "'")
-        return false
-    end
-
-    ConfigData = snapshot
-    return SafeWriteConfig(target, encoded)
-end
-
-function QueueSaveConfig(force)
-    if force then return SaveConfig(true) end
-    if ApplyingConfig or not AutoSaveEnabled then return false end
-    if SaveQueued then return true end
-
-    SaveQueued = true
-    task.delay(0.35, function()
-        SaveQueued = false
-        SaveConfig(false)
-    end)
-    return true
-end
-
 local function TryReadConfig(path, retries)
     if not (readfile and isfile) then return nil end
     retries = retries or 3
@@ -282,10 +245,7 @@ local function SafeWriteConfig(path, encoded)
     EnsureFolderForFile(path)
     for attempt = 1, 3 do
         local ok = pcall(writefile, path, encoded)
-        if ok then
-            local check = TryReadConfig(path, 1)
-            if check ~= nil then return true end
-        end
+        if ok then return true end
         if attempt < 3 then task.wait(0.2 * attempt) end
     end
     return false
@@ -318,6 +278,62 @@ local function GetAccountBaseFile()
         return GameConfigFolder .. "/_base." .. GetCurrentAccountId() .. ".json"
     end
     return ConfigFile
+end
+
+function SaveConfig(force)
+    if not writefile or not CURRENT_VERSION then return false end
+    if ApplyingConfig and not force then return false end
+    if not force and not AutoSaveEnabled then return false end
+
+    local target = ActiveConfigPath or GetAccountBaseFile()
+    if not target or target == "" then return false end
+
+    local snapshot = GetConfigSnapshot()
+    local ok, encoded = pcall(function() return HttpService:JSONEncode(snapshot) end)
+    if not ok then
+        warn("SaveConfig failed to encode config:", encoded)
+        return false
+    end
+
+    if IsEmptySnapshot(snapshot) and TryReadConfig(target, 1) ~= nil then
+        warn("[BolongUi] Skip save: snapshot kosong, mencegah timpa '" .. tostring(ActiveConfigName or target) .. "'")
+        return false
+    end
+
+    ConfigData = snapshot
+    return SafeWriteConfig(target, encoded)
+end
+
+function QueueSaveConfig(force)
+    if force then return SaveConfig(true) end
+    if ApplyingConfig or not AutoSaveEnabled then return false end
+    if SaveQueued then return true end
+
+    SaveQueued = true
+    SaveConfig(false)
+    task.delay(0.35, function()
+        SaveQueued = false
+        SaveConfig(false)
+    end)
+    return true
+end
+
+local AUTOSAVE_STATE_FILE = "_autosave.json"
+
+local function ReadAutoSaveState()
+    local data = TryReadConfig(GameConfigFolder .. "/" .. AUTOSAVE_STATE_FILE, 2)
+    if data and type(data.Enabled) == "boolean" then
+        return data.Enabled == true
+    end
+    return nil
+end
+
+local function WriteAutoSaveState(value)
+    if not writefile then return false end
+    EnsureConfigFolder()
+    local ok, encoded = pcall(function() return HttpService:JSONEncode({ Enabled = value == true }) end)
+    if not ok then return false end
+    return SafeWriteConfig(GameConfigFolder .. "/" .. AUTOSAVE_STATE_FILE, encoded)
 end
 
 local ACCOUNT_AUTOLOAD_FILE = "_account_autoload.json"
@@ -360,6 +376,11 @@ function LoadConfigFromFile()
     if not CURRENT_VERSION then return end
     ConfigData = { _version = CURRENT_VERSION }
     SetActiveConfig(nil, nil, nil, nil)
+
+    local savedAutoSave = ReadAutoSaveState()
+    if savedAutoSave ~= nil then
+        AutoSaveEnabled = savedAutoSave
+    end
 
     local accountInfo = GetAccountAutoLoadInfo()
     AccountAutoLoadEnabledPending = accountInfo.Enabled == true
@@ -2214,6 +2235,14 @@ function Chloex:Window(GuiConfig)
         EnsureConfigFolder()
         name = name or ""
         writefile(GameConfigFolder .. "/_autoload.json", HttpService:JSONEncode({ Name = name }))
+        if name ~= "" then
+            local info = GetAccountAutoLoadInfo()
+            if info.Enabled then
+                info.Enabled = false
+                WriteAccountAutoLoadInfo(info)
+                AccountAutoLoadEnabledPending = false
+            end
+        end
     end
 
     function GuiFunc:GetAutoLoad()
@@ -2260,6 +2289,9 @@ function Chloex:Window(GuiConfig)
             return false
         end
         AccountAutoLoadEnabledPending = info.Enabled
+        if info.Enabled then
+            GuiFunc:SetAutoLoad("")
+        end
         return true
     end
 
@@ -6026,6 +6058,7 @@ function Chloex:Window(GuiConfig)
                     Save     = false,
                     Callback = function(value)
                         AutoSaveEnabled = value
+                        WriteAutoSaveState(value)
                         SetActiveConfig(ActiveConfigName, ActiveConfigPath, AutoSaveEnabled, ActiveConfigMode)
                         
                         
@@ -6039,6 +6072,7 @@ function Chloex:Window(GuiConfig)
                 })
                 initializingAutoSaveToggle = false
 
+                local AccToggle
                 local AutoToggle
                 local initializingAutoToggle = true
                 AutoToggle = Items:AddToggle({
@@ -6050,6 +6084,7 @@ function Chloex:Window(GuiConfig)
                         if initializingAutoToggle then return end
                         if value and selectedConfig then
                             GuiFunc:SetAutoLoad(selectedConfig)
+                            if AccToggle and AccToggle.Set then AccToggle:Set(false, true) end
                             than("Auto load set to '" .. selectedConfig .. "'", 4, GuiConfig.Color, "BolongHub", "Config")
                         elseif value then
                             GuiFunc:SetAutoLoad("")
@@ -6087,7 +6122,6 @@ function Chloex:Window(GuiConfig)
                 end
                 UpdateAccStatus()
 
-                local AccToggle
                 local initializingAccToggle = true
                 AccToggle = Items:AddToggle({
                     Title    = "Enable Per-Account Autoload",
@@ -6101,9 +6135,8 @@ function Chloex:Window(GuiConfig)
                             return
                         end
                         if value then
+                            if AutoToggle and AutoToggle.Set then AutoToggle:Set(false, true) end
                             than("Per-Account Autoload enabled", 4, GuiConfig.Color, "BolongHub", "Config")
-                        else
-                            than("Per-Account Autoload disabled, fallback ke legacy autoload", 4, Color3.fromRGB(255, 170, 0), "BolongHub", "Config")
                         end
                         UpdateAccStatus()
                     end,
@@ -6149,7 +6182,6 @@ function Chloex:Window(GuiConfig)
                         end
                     end,
                 })
-                -- ===== End Auto Load Per Akun =====
 
                 local ImportInput = Items:AddInput({
                     Title       = "Import JSON",
