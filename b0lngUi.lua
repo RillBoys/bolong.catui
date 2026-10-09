@@ -1342,6 +1342,277 @@ function Chloex:TargetSelector(TargetConfig)
     return Selector
 end
 
+local TogglePanelId = 0
+
+function Chloex:TogglePanel(ToggleConfig)
+    ToggleConfig = ToggleConfig or {}
+    ToggleConfig.Title = ToggleConfig.Title or "TOGGLE"
+    ToggleConfig.Subtitle = ToggleConfig.Subtitle or ""
+    ToggleConfig.Default = ToggleConfig.Default and true or false
+    ToggleConfig.Accent = ToggleConfig.Accent or THEME.text
+    ToggleConfig.Callback = ToggleConfig.Callback or function() end
+    ToggleConfig.OffsetY = ToggleConfig.OffsetY or 0
+
+    local MARGIN = 15
+    local TITLE_HEIGHT = 30
+    local PADDING_X = 12
+    local PADDING_Y = 10
+    local ROW_H = 30
+    local W = PADDING_X * 2 + 96
+    local H = TITLE_HEIGHT + PADDING_Y * 2 + ROW_H
+
+    local C = {
+        bg      = THEME.bg,
+        hover   = Color3.fromRGB(35, 35, 40),
+        white   = THEME.text,
+        chipOn  = Color3.fromRGB(240, 240, 245),
+        onText  = THEME.bg,
+        stroke  = THEME.border,
+        sep     = Color3.fromRGB(35, 35, 40),
+        dim     = THEME.muted,
+        danger  = Color3.fromRGB(235, 70, 70),
+    }
+
+    local hoverInfo = TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+
+    local Toggle = { _value = ToggleConfig.Default }
+
+    local Gui = Instance.new("ScreenGui")
+    TogglePanelId = TogglePanelId + 1
+    Gui.Name = "TogglePanel_" .. TogglePanelId
+    Gui.ResetOnSpawn = false
+    Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    Gui.DisplayOrder = 99
+    Gui.Parent = CoreGui
+
+    local function bindDrag(topbar, frame)
+        local dragging = false
+        local dragStart, startPos
+        topbar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startPos = frame.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - dragStart
+                frame.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+    end
+
+    local Panel = Instance.new("Frame")
+    Panel.Name = "Panel"
+    Panel.Size = UDim2.new(0, W, 0, H)
+    Panel.Position = UDim2.new(1, -(W + MARGIN), 0, MARGIN + ToggleConfig.OffsetY)
+    Panel.BackgroundColor3 = C.bg
+    Panel.BorderSizePixel = 0
+    Panel.Active = true
+    Panel.Visible = false
+    Panel.Parent = Gui
+    AddCorner(Panel, 8)
+    AddStroke(Panel, C.stroke, 1, 0.2)
+
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Size = UDim2.new(1, -70, 0, TITLE_HEIGHT)
+    TitleBar.BackgroundTransparency = 1
+    TitleBar.Parent = Panel
+    bindDrag(TitleBar, Panel)
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -60, 0, TITLE_HEIGHT)
+    Title.Position = UDim2.new(0, 12, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = ToggleConfig.Title
+    Title.TextColor3 = C.white
+    Title.TextSize = 12
+    Title.Font = Enum.Font.GothamMedium
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.ZIndex = 4
+    Title.Parent = Panel
+
+    local function makeWinBtn(sym, xOff)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0, 24, 0, TITLE_HEIGHT)
+        b.Position = UDim2.new(1, xOff, 0, 0)
+        b.BackgroundColor3 = C.bg
+        b.BorderSizePixel = 0
+        b.Text = sym
+        b.TextColor3 = C.dim
+        b.TextSize = 14
+        b.Font = Enum.Font.GothamBold
+        b.AutoButtonColor = false
+        b.ZIndex = 4
+        b.Parent = Panel
+        b.MouseEnter:Connect(function()
+            TweenService:Create(b, hoverInfo, { BackgroundColor3 = C.hover, TextColor3 = C.white }):Play()
+        end)
+        b.MouseLeave:Connect(function()
+            TweenService:Create(b, hoverInfo, { BackgroundColor3 = C.bg, TextColor3 = C.dim }):Play()
+        end)
+        return b
+    end
+
+    local MinBtn = makeWinBtn("−", -48)
+
+    local CloseBtn = Instance.new("ImageButton")
+    CloseBtn.Size = UDim2.new(0, 16, 0, 16)
+    CloseBtn.Position = UDim2.new(1, -20, 0, (TITLE_HEIGHT - 16) / 2)
+    CloseBtn.BackgroundColor3 = C.bg
+    CloseBtn.BorderSizePixel = 0
+    CloseBtn.Image = "rbxassetid://9886659671"
+    CloseBtn.ImageColor3 = C.dim
+    CloseBtn.ScaleType = Enum.ScaleType.Fit
+    CloseBtn.AutoButtonColor = false
+    CloseBtn.ZIndex = 4
+    CloseBtn.Name = "CloseButton"
+    CloseBtn.Parent = Panel
+    CloseBtn.MouseEnter:Connect(function()
+        TweenService:Create(CloseBtn, hoverInfo, { BackgroundColor3 = C.danger, ImageColor3 = C.white }):Play()
+    end)
+    CloseBtn.MouseLeave:Connect(function()
+        TweenService:Create(CloseBtn, hoverInfo, { BackgroundColor3 = C.bg, ImageColor3 = C.dim }):Play()
+    end)
+
+    local sep = Instance.new("Frame")
+    sep.Size = UDim2.new(1, 0, 0, 1)
+    sep.Position = UDim2.new(0, 0, 0, TITLE_HEIGHT)
+    sep.BackgroundColor3 = C.sep
+    sep.BorderSizePixel = 0
+    sep.ZIndex = 3
+    sep.Parent = Panel
+
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, 0, 1, -TITLE_HEIGHT)
+    Row.Position = UDim2.new(0, 0, 0, TITLE_HEIGHT)
+    Row.BackgroundTransparency = 1
+    Row.ZIndex = 3
+    Row.Parent = Panel
+
+    local Chip = Instance.new("TextButton")
+    Chip.Name = "Chip"
+    Chip.Size = UDim2.new(1, -PADDING_X * 2, 0, ROW_H)
+    Chip.Position = UDim2.new(0, PADDING_X, 0.5, -ROW_H / 2)
+    Chip.BackgroundColor3 = C.hover
+    Chip.BorderSizePixel = 0
+    Chip.Text = (ToggleConfig.Subtitle ~= "" and ToggleConfig.Subtitle) or "Status"
+    Chip.TextColor3 = C.dim
+    Chip.TextSize = 12
+    Chip.Font = Enum.Font.GothamMedium
+    Chip.AutoButtonColor = false
+    Chip.ZIndex = 4
+    Chip.Parent = Row
+    AddCorner(Chip, 6)
+    AddStroke(Chip, C.stroke, 1)
+
+    local function updateVisual(value)
+        if value then
+            Chip.TextColor3 = C.onText
+            TweenService:Create(Chip, hoverInfo, { BackgroundColor3 = C.chipOn }):Play()
+            local s = Chip:FindFirstChildOfClass("UIStroke")
+            if s then TweenService:Create(s, hoverInfo, { Color = C.chipOn, Transparency = 1 }):Play() end
+        else
+            Chip.TextColor3 = C.dim
+            TweenService:Create(Chip, hoverInfo, { BackgroundColor3 = C.hover }):Play()
+            local s = Chip:FindFirstChildOfClass("UIStroke")
+            if s then TweenService:Create(s, hoverInfo, { Color = C.stroke, Transparency = 0 }):Play() end
+        end
+    end
+
+    local function toggleValue(fireCallback)
+        Toggle._value = not Toggle._value
+        updateVisual(Toggle._value)
+        if fireCallback then pcall(ToggleConfig.Callback, Toggle._value) end
+    end
+
+    Chip.MouseButton1Click:Connect(function()
+        toggleValue(true)
+    end)
+
+    Chip.MouseEnter:Connect(function()
+        if Toggle._value then return end
+        TweenService:Create(Chip, hoverInfo, { BackgroundColor3 = Color3.fromRGB(46, 46, 54) }):Play()
+    end)
+    Chip.MouseLeave:Connect(function()
+        updateVisual(Toggle._value)
+    end)
+
+    local minimized = false
+    local function setSize(compact)
+        local target = compact and UDim2.new(0, W, 0, TITLE_HEIGHT) or UDim2.new(0, W, 0, H)
+        TweenService:Create(Panel, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = target }):Play()
+    end
+
+    MinBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        Row.Visible = not minimized
+        sep.Visible = not minimized
+        setSize(minimized)
+    end)
+
+    CloseBtn.MouseButton1Click:Connect(function()
+        Toggle:Hide()
+    end)
+
+    updateVisual(Toggle._value)
+
+    function Toggle:Set(value, fireCallback)
+        value = value and true or false
+        local changed = Toggle._value ~= value
+        Toggle._value = value
+        updateVisual(Toggle._value)
+        if fireCallback and changed then
+            pcall(ToggleConfig.Callback, Toggle._value)
+        end
+        return self
+    end
+
+    function Toggle:Get()
+        return Toggle._value
+    end
+
+    function Toggle:Toggle()
+        if Panel then Panel.Visible = not Panel.Visible end
+        return self
+    end
+
+    function Toggle:Show()
+        if Panel then
+            Panel.Visible = true
+            if minimized then
+                minimized = false
+                Row.Visible = true
+                sep.Visible = true
+                Panel.Size = UDim2.new(0, W, 0, H)
+            end
+        end
+        return self
+    end
+
+    function Toggle:Hide()
+        if Panel then Panel.Visible = false end
+        return self
+    end
+
+    function Toggle:Destroy()
+        if Gui then Gui:Destroy() end
+        Gui = nil
+        return self
+    end
+
+    return Toggle
+end
+
 local function than(msg, delay, color, title, desc)
     return Chloex:MakeNotify({
         Title = title or "BolongHub",
@@ -1979,6 +2250,7 @@ function Chloex:Window(GuiConfig)
     GuiConfig["Tab Width"] = GuiConfig["Tab Width"] or 120
     GuiConfig.Version      = GuiConfig.Version or 1
     if GuiConfig.Search == nil then GuiConfig.Search = true end
+    GuiConfig.WindowKeybind = GuiConfig.WindowKeybind or Enum.KeyCode.B
 
     
     
@@ -2305,6 +2577,8 @@ function Chloex:Window(GuiConfig)
     local UICorner1 = Instance.new("UICorner");
     local TextLabel1 = Instance.new("TextLabel");
     local Close = Instance.new("TextButton");
+    local Lock = Instance.new("TextButton");
+    local mainButtonLocked = false
     local ImageLabel1 = Instance.new("ImageLabel");
     local Min = Instance.new("TextButton");
     local ImageLabel2 = Instance.new("ImageLabel");
@@ -2584,6 +2858,18 @@ function Chloex:Window(GuiConfig)
     ImageLabel2.Position = UDim2.new(0.5, 0, 0.5, 0)
     ImageLabel2.Size = UDim2.new(1, -9, 1, -9)
     ImageLabel2.Parent = Min
+
+    Lock.Font = Enum.Font.SourceSans
+    Lock.Text = "○"
+    Lock.TextColor3 = THEME.faint
+    Lock.TextSize = 18
+    Lock.AnchorPoint = Vector2.new(1, 0.5)
+    Lock.BackgroundTransparency = 1
+    Lock.BorderSizePixel = 0
+    Lock.Position = UDim2.new(1, -66, 0.5, 0)
+    Lock.Size = UDim2.new(0, 30, 0, 30)
+    Lock.Name = "Lock"
+    Lock.Parent = Top
 
     LayersTab.BackgroundTransparency = 1
     LayersTab.BorderSizePixel = 0
@@ -2905,6 +3191,17 @@ function Chloex:Window(GuiConfig)
         CircleClick(Min, Mouse.X, Mouse.Y)
         DropShadowHolder.Visible = false
     end)
+    Lock.Activated:Connect(function()
+        CircleClick(Lock, Mouse.X, Mouse.Y)
+        GuiFunc:SetMainButtonLocked(not mainButtonLocked)
+        than(
+            mainButtonLocked and "Floating button locked" or "Floating button unlocked",
+            4,
+            GuiConfig.Color,
+            GuiConfig.Title,
+            "Lock"
+        )
+    end)
     Close.Activated:Connect(function()
         CircleClick(Close, Mouse.X, Mouse.Y)
 
@@ -3044,6 +3341,7 @@ function Chloex:Window(GuiConfig)
 
         Button.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                if mainButtonLocked then return end
                 dragging = true
                 dragStart = input.Position
                 startPos = MainButton.Position
@@ -3062,7 +3360,45 @@ function Chloex:Window(GuiConfig)
         end)
     end
 
-    GuiFunc:ToggleUI()
+GuiFunc:ToggleUI()
+
+    function GuiFunc:SetMainButtonLocked(value)
+        mainButtonLocked = value and true or false
+        if Lock then
+            Lock.Text = mainButtonLocked and "●" or "○"
+            Lock.TextColor3 = mainButtonLocked and GuiConfig.Color or THEME.faint
+        end
+        return self
+    end
+
+    function GuiFunc:IsMainButtonLocked()
+        return mainButtonLocked
+    end
+
+    local windowKeybind = GuiConfig.WindowKeybind
+
+    function GuiFunc:SetWindowKeybind(kc)
+        if type(kc) == "string" then
+            local ok, converted = pcall(function()
+                return Enum.KeyCode[kc]
+            end)
+            kc = (ok and converted) or Enum.KeyCode.Unknown
+        end
+        windowKeybind = kc or Enum.KeyCode.Unknown
+        return self
+    end
+
+    if windowKeybind and windowKeybind ~= Enum.KeyCode.Unknown then
+        UserInputService.InputBegan:Connect(function(input, gpe)
+            if gpe then return end
+            if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+            if windowKeybind ~= Enum.KeyCode.Unknown and input.KeyCode == windowKeybind then
+                if DropShadowHolder then
+                    DropShadowHolder.Visible = not DropShadowHolder.Visible
+                end
+            end
+        end)
+    end
 
     MakeDraggable(Top, DropShadowHolder)
 
@@ -3962,6 +4298,8 @@ function Chloex:Window(GuiConfig)
                 ToggleConfig.Content = ToggleConfig.Content or ""
                 ToggleConfig.Default = ToggleConfig.Default or false
                 ToggleConfig.Callback = ToggleConfig.Callback or function() end
+                ToggleConfig.Keybind = ToggleConfig.Keybind or Enum.KeyCode.Unknown
+                ToggleConfig.KeybindSave = ToggleConfig.KeybindSave ~= false
 
                 local configKey = "Toggle_" .. ToggleConfig.Title
                 local shouldSave = ToggleConfig.Save ~= false
@@ -3969,7 +4307,18 @@ function Chloex:Window(GuiConfig)
                     ToggleConfig.Default = ConfigData[configKey]
                 end
 
+                local keybindConfigKey = "ToggleKeybind_" .. ToggleConfig.Title
+                local shouldSaveKeybind = ToggleConfig.KeybindSave
+                if shouldSaveKeybind and ConfigData[keybindConfigKey] ~= nil then
+                    local ok, kc = pcall(function()
+                        return Enum.KeyCode[ConfigData[keybindConfigKey]]
+                    end)
+                    if ok and kc then ToggleConfig.Keybind = kc end
+                end
+
                 local ToggleFunc = { Value = ToggleConfig.Default }
+
+                local titleMargin = isMobile and 100 or 150
 
                 local Toggle = Instance.new("Frame")
                 local UICorner20 = Instance.new("UICorner")
@@ -4000,7 +4349,7 @@ function Chloex:Window(GuiConfig)
                 ToggleTitle.TextYAlignment = Enum.TextYAlignment.Top
                 ToggleTitle.BackgroundTransparency = 1
                 ToggleTitle.Position = UDim2.new(0, 10, 0, 10)
-                ToggleTitle.Size = UDim2.new(1, -100, 0, 13)
+                ToggleTitle.Size = UDim2.new(1, -titleMargin, 0, 13)
                 ToggleTitle.Name = "ToggleTitle"
                 ToggleTitle.Parent = Toggle
 
@@ -4013,7 +4362,7 @@ function Chloex:Window(GuiConfig)
                 ToggleTitle2.TextYAlignment = Enum.TextYAlignment.Top
                 ToggleTitle2.BackgroundTransparency = 1
                 ToggleTitle2.Position = UDim2.new(0, 10, 0, 23)
-                ToggleTitle2.Size = UDim2.new(1, -100, 0, 12)
+                ToggleTitle2.Size = UDim2.new(1, -titleMargin, 0, 12)
                 ToggleTitle2.Name = "ToggleTitle2"
                 ToggleTitle2.Parent = Toggle
 
@@ -4025,7 +4374,7 @@ function Chloex:Window(GuiConfig)
                 ToggleContent.TextXAlignment = Enum.TextXAlignment.Left
                 ToggleContent.TextYAlignment = Enum.TextYAlignment.Bottom
                 ToggleContent.BackgroundTransparency = 1
-                ToggleContent.Size = UDim2.new(1, -100, 0, 12)
+                ToggleContent.Size = UDim2.new(1, -titleMargin, 0, 12)
                 ToggleContent.Name = "ToggleContent"
                 ToggleContent.Parent = Toggle
 
@@ -4039,7 +4388,7 @@ function Chloex:Window(GuiConfig)
                     ToggleTitle2.Visible = false
                 end
 
-                ToggleContent.Size = UDim2.new(1, -100, 0,
+                ToggleContent.Size = UDim2.new(1, -titleMargin, 0,
                     12 + (12 * (ToggleContent.TextBounds.X // ToggleContent.AbsoluteSize.X)))
                 ToggleContent.TextWrapped = true
                 if ToggleConfig.Title2 ~= "" then
@@ -4056,7 +4405,7 @@ function Chloex:Window(GuiConfig)
                     end
 
                     ToggleContent.TextWrapped = false
-                    ToggleContent.Size = UDim2.new(1, -100, 0,
+                    ToggleContent.Size = UDim2.new(1, -titleMargin, 0,
                         12 + (12 * (ToggleContent.TextBounds.X // ToggleContent.AbsoluteSize.X)))
                     if ToggleConfig.Title2 ~= "" then
                         Toggle.Size = UDim2.new(Toggle.Size.X.Scale, Toggle.Size.X.Offset, 0,
@@ -4076,6 +4425,118 @@ function Chloex:Window(GuiConfig)
                 ToggleButton.Size = UDim2.new(1, 0, 1, 0)
                 ToggleButton.Name = "ToggleButton"
                 ToggleButton.Parent = Toggle
+
+                if not isMobile then
+                local KeybindValue = ToggleConfig.Keybind
+                local listening = false
+
+                local KeyBtn = Instance.new("TextButton")
+                KeyBtn.Font = Enum.Font.GothamBold
+                KeyBtn.Text = KeybindValue ~= Enum.KeyCode.Unknown and KeybindValue.Name or "None"
+                KeyBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+                KeyBtn.TextSize = 12
+                KeyBtn.TextWrapped = true
+                KeyBtn.AutoButtonColor = false
+                KeyBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+                KeyBtn.BackgroundTransparency = 0.2
+                KeyBtn.BorderSizePixel = 0
+                KeyBtn.AnchorPoint = Vector2.new(1, 0.5)
+                KeyBtn.Position = UDim2.new(1, -58, 0.5, 0)
+                KeyBtn.Size = UDim2.new(0, 52, 0, 28)
+                KeyBtn.Name = "KeyBtn"
+                KeyBtn.Parent = Toggle
+
+                local KeyBtnCorner = Instance.new("UICorner")
+                KeyBtnCorner.CornerRadius = UDim.new(0, 8)
+                KeyBtnCorner.Parent = KeyBtn
+
+                local KeyBtnStroke = Instance.new("UIStroke")
+                KeyBtnStroke.Color = Color3.fromRGB(60, 60, 60)
+                KeyBtnStroke.Thickness = 1
+                KeyBtnStroke.Transparency = 0.2
+                KeyBtnStroke.Parent = KeyBtn
+
+                local kDefaultBg = Color3.fromRGB(35, 35, 35)
+                local kDefaultBgTrans = 0.2
+                local kDefaultStroke = Color3.fromRGB(60, 60, 60)
+                local kDefaultText = Color3.fromRGB(200, 200, 200)
+                local kHoverBg = Color3.fromRGB(45, 45, 45)
+                local kHoverStroke = Color3.fromRGB(90, 90, 90)
+
+                local function SetKeybindListening(state)
+                    listening = state
+                    if state then
+                        KeyBtn.Text = "..."
+                        TweenService:Create(KeyBtnStroke, TweenInfo.new(0.2), { Color = GuiConfig.Color, Transparency = 0 }):Play()
+                        TweenService:Create(KeyBtn, TweenInfo.new(0.2), { BackgroundColor3 = GuiConfig.Color, BackgroundTransparency = 0.85 }):Play()
+                        TweenService:Create(KeyBtn, TweenInfo.new(0.2), { TextColor3 = GuiConfig.Color }):Play()
+                    else
+                        KeyBtn.Text = KeybindValue ~= Enum.KeyCode.Unknown and KeybindValue.Name or "None"
+                        TweenService:Create(KeyBtnStroke, TweenInfo.new(0.2), { Color = kDefaultStroke, Transparency = 0.2 }):Play()
+                        TweenService:Create(KeyBtn, TweenInfo.new(0.2), { BackgroundColor3 = kDefaultBg, BackgroundTransparency = kDefaultBgTrans }):Play()
+                        TweenService:Create(KeyBtn, TweenInfo.new(0.2), { TextColor3 = kDefaultText }):Play()
+                    end
+                end
+
+                KeyBtn.MouseEnter:Connect(function()
+                    if not listening then
+                        TweenService:Create(KeyBtn, TweenInfo.new(0.15), { BackgroundColor3 = kHoverBg }):Play()
+                        TweenService:Create(KeyBtnStroke, TweenInfo.new(0.15), { Color = kHoverStroke }):Play()
+                    end
+                end)
+
+                KeyBtn.MouseLeave:Connect(function()
+                    if not listening then
+                        TweenService:Create(KeyBtn, TweenInfo.new(0.15), { BackgroundColor3 = kDefaultBg, BackgroundTransparency = kDefaultBgTrans }):Play()
+                        TweenService:Create(KeyBtnStroke, TweenInfo.new(0.15), { Color = kDefaultStroke, Transparency = 0.2 }):Play()
+                    end
+                end)
+
+                KeyBtn.MouseButton1Click:Connect(function()
+                    SetKeybindListening(not listening)
+                end)
+
+                UserInputService.InputBegan:Connect(function(input, gpe)
+                    if not listening then
+                        if gpe then return end
+                        if KeybindValue == Enum.KeyCode.Unknown then return end
+                        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                        if input.KeyCode == KeybindValue then
+                            ToggleFunc.Value = not ToggleFunc.Value
+                            ToggleFunc:Set(ToggleFunc.Value)
+                        end
+                        return
+                    end
+                    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                    if input.KeyCode == Enum.KeyCode.Escape then
+                        SetKeybindListening(false)
+                        return
+                    end
+                    KeybindValue = input.KeyCode
+                    KeyBtn.Text = KeybindValue.Name
+                    if shouldSaveKeybind then
+                        ConfigData[keybindConfigKey] = KeybindValue.Name
+                        QueueSaveConfig()
+                    end
+                    SetKeybindListening(false)
+                end)
+
+                function ToggleFunc:SetKeybind(kc, noSave)
+                    if type(kc) == "string" then
+                        local ok, converted = pcall(function()
+                            return Enum.KeyCode[kc]
+                        end)
+                        kc = (ok and converted) or Enum.KeyCode.Unknown
+                    end
+                    kc = kc or Enum.KeyCode.Unknown
+                    KeybindValue = kc
+                    KeyBtn.Text = KeybindValue ~= Enum.KeyCode.Unknown and KeybindValue.Name or "None"
+                    if shouldSaveKeybind then
+                        ConfigData[keybindConfigKey] = KeybindValue ~= Enum.KeyCode.Unknown and KeybindValue.Name or "None"
+                        if not noSave then QueueSaveConfig() end
+                    end
+                end
+                end
 
                 FeatureFrame2.AnchorPoint = Vector2.new(1, 0.5)
                 FeatureFrame2.BackgroundColor3 = Color3.fromRGB(58, 58, 66)
@@ -4155,6 +4616,9 @@ function Chloex:Window(GuiConfig)
                 end
 
                 ToggleFunc:Set(ToggleFunc.Value, true)
+                if not isMobile then
+                    ToggleFunc:SetKeybind(ToggleConfig.Keybind, true)
+                end
                 CountItem = CountItem + 1
                 if shouldSave then
                     Elements[configKey] = ToggleFunc
@@ -5974,6 +6438,67 @@ function Chloex:Window(GuiConfig)
                 })
 
                 return Selector
+            end
+
+            function Items:AddTogglePanel(ToggleCfg)
+                ToggleCfg = ToggleCfg or {}
+                local ItemTitle = ToggleCfg.Title or "Toggle"
+                local PanelTitle = ToggleCfg.PanelTitle or ItemTitle
+                local Subtitle = ToggleCfg.Subtitle or ""
+                local Default = ToggleCfg.Default and true or false
+                local OffsetY = ToggleCfg.OffsetY or 0
+                local Callback = ToggleCfg.Callback or function() end
+
+                local ToggleItem
+                local Panel
+                local syncing = false
+
+                local function dispatch(v)
+                    syncing = true
+                    local ok, err = pcall(Callback, v)
+                    syncing = false
+                    if not ok then warn("AddTogglePanel Callback error:", err) end
+                end
+
+                ToggleItem = Items:AddToggle({
+                    Title = ItemTitle,
+                    Content = ToggleCfg.Content or Subtitle,
+                    Default = Default,
+                    Save = ToggleCfg.Save,
+                    Keybind = ToggleCfg.Keybind,
+                    KeybindSave = ToggleCfg.KeybindSave,
+                    Callback = function(v)
+                        if syncing then return end
+                        syncing = true
+                        if Panel then Panel:Set(v, true) end
+                        syncing = false
+                        dispatch(v)
+                    end,
+                })
+
+                Panel = Chloex:TogglePanel({
+                    Title = PanelTitle,
+                    Subtitle = Subtitle,
+                    Default = ToggleItem.Value,
+                    Accent = GuiConfig.Color,
+                    OffsetY = OffsetY,
+                    Callback = function(v)
+                        if syncing then return end
+                        syncing = true
+                        if ToggleItem then ToggleItem:Set(v, true) end
+                        syncing = false
+                        dispatch(v)
+                    end,
+                })
+
+                Items:AddButton({
+                    Title = ToggleCfg.ButtonTitle or ("Open " .. PanelTitle .. " Panel"),
+                    Callback = function()
+                        if Panel then Panel:Toggle() end
+                    end,
+                })
+
+                return Panel
             end
 
             function Items:AddConfig(ConfigCfg)
