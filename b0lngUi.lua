@@ -152,6 +152,13 @@ local InternalConfigKeys = {
     ["Toggle_Auto Load"] = true,
 }
 
+local function BuildConfigKey(prefix, scope, title, flag)
+    if type(flag) == "string" and flag ~= "" then
+        return flag
+    end
+    return prefix .. "::" .. tostring(scope) .. "::" .. tostring(title)
+end
+
 local function CopyConfigValue(value, seen)
     if type(value) ~= "table" then return value end
     seen = seen or {}
@@ -3689,6 +3696,7 @@ GuiFunc:ToggleUI()
         local CountSection = 0
         function Sections:AddSection(Title, AlwaysOpen)
             local Title = Title or "Title"
+            local SectionScope = tostring(TabConfig.Name or "Tab") .. "::" .. tostring(Title)
             local Section = Instance.new("Frame");
             local SectionDecideFrame = Instance.new("Frame");
             local UICorner1 = Instance.new("UICorner");
@@ -4069,7 +4077,8 @@ GuiFunc:ToggleUI()
                 PanelConfig.SubButtonCallback = PanelConfig.SubCallback or PanelConfig.SubButtonCallback or
                     function() end
 
-                local configKey = "Panel_" .. PanelConfig.Title
+                local configKey = BuildConfigKey("Panel", SectionScope, PanelConfig.Title,
+                    PanelConfig.Flag or PanelConfig.ConfigKey or PanelConfig.ID)
                 local shouldSave = PanelConfig.Save ~= false
                 if shouldSave and ConfigData[configKey] ~= nil then
                     PanelConfig.Default = ConfigData[configKey]
@@ -4301,13 +4310,16 @@ GuiFunc:ToggleUI()
                 ToggleConfig.Keybind = ToggleConfig.Keybind or Enum.KeyCode.Unknown
                 ToggleConfig.KeybindSave = ToggleConfig.KeybindSave ~= false
 
-                local configKey = "Toggle_" .. ToggleConfig.Title
+                local toggleFlag = ToggleConfig.Flag or ToggleConfig.ConfigKey or ToggleConfig.ID
+                local configKey = BuildConfigKey("Toggle", SectionScope, ToggleConfig.Title, toggleFlag)
                 local shouldSave = ToggleConfig.Save ~= false
                 if shouldSave and ConfigData[configKey] ~= nil then
                     ToggleConfig.Default = ConfigData[configKey]
                 end
 
-                local keybindConfigKey = "ToggleKeybind_" .. ToggleConfig.Title
+                local keybindConfigKey = BuildConfigKey("ToggleKeybind", SectionScope, ToggleConfig.Title,
+                    ToggleConfig.KeybindFlag
+                        or (type(toggleFlag) == "string" and (toggleFlag .. "::Keybind") or nil))
                 local shouldSaveKeybind = ToggleConfig.KeybindSave
                 if shouldSaveKeybind and ConfigData[keybindConfigKey] ~= nil then
                     local ok, kc = pcall(function()
@@ -4618,6 +4630,13 @@ GuiFunc:ToggleUI()
                 ToggleFunc:Set(ToggleFunc.Value, true)
                 if not isMobile then
                     ToggleFunc:SetKeybind(ToggleConfig.Keybind, true)
+                    if shouldSaveKeybind then
+                        Elements[keybindConfigKey] = {
+                            Set = function(_, value)
+                                ToggleFunc:SetKeybind(value, true)
+                            end,
+                        }
+                    end
                 end
                 CountItem = CountItem + 1
                 if shouldSave then
@@ -4647,7 +4666,8 @@ GuiFunc:ToggleUI()
                 SliderConfig.Live = SliderConfig.Live == true
                 SliderConfig.Callback = SliderConfig.Callback or function() end
 
-                local configKey = "Slider_" .. SliderConfig.Title
+                local configKey = BuildConfigKey("Slider", SectionScope, SliderConfig.Title,
+                    SliderConfig.Flag or SliderConfig.ConfigKey or SliderConfig.ID)
                 local shouldSave = SliderConfig.Save ~= false
                 if shouldSave and ConfigData[configKey] ~= nil then
                     SliderConfig.Default = tonumber(ConfigData[configKey]) or SliderConfig.Default
@@ -4946,7 +4966,8 @@ GuiFunc:ToggleUI()
                     Color3.fromRGB(0, 128, 128), Color3.fromRGB(255, 215, 0),
                 }
 
-                local configKey = "ColorPicker_" .. ColorConfig.Title
+                local configKey = BuildConfigKey("ColorPicker", SectionScope, ColorConfig.Title,
+                    ColorConfig.Flag or ColorConfig.ConfigKey or ColorConfig.ID)
                 local shouldSave = ColorConfig.Save ~= false
                 if shouldSave and ConfigData[configKey] ~= nil and type(ConfigData[configKey]) == "table" then
                     local c = ConfigData[configKey]
@@ -5470,7 +5491,8 @@ GuiFunc:ToggleUI()
                 InputConfig.Default = InputConfig.Default or ""
                 InputConfig.Placeholder = InputConfig.Placeholder or "Input Here"
 
-                local configKey = "Input_" .. InputConfig.Title
+                local configKey = BuildConfigKey("Input", SectionScope, InputConfig.Title,
+                    InputConfig.Flag or InputConfig.ConfigKey or InputConfig.ID)
                 local shouldSave = InputConfig.Save ~= false
                 if shouldSave and ConfigData[configKey] ~= nil then
                     InputConfig.Default = ConfigData[configKey]
@@ -5618,7 +5640,8 @@ GuiFunc:ToggleUI()
                 KeybindConfig.Default = KeybindConfig.Default or Enum.KeyCode.Unknown
                 KeybindConfig.Callback = KeybindConfig.Callback or function() end
 
-                local configKey = "Keybind_" .. KeybindConfig.Title
+                local configKey = BuildConfigKey("Keybind", SectionScope, KeybindConfig.Title,
+                    KeybindConfig.Flag or KeybindConfig.ConfigKey or KeybindConfig.ID)
                 local shouldSave = KeybindConfig.Save ~= false
                 if shouldSave and ConfigData[configKey] ~= nil then
                     local ok, kc = pcall(function()
@@ -5815,7 +5838,8 @@ GuiFunc:ToggleUI()
                     KeybindConfig.Slots[2].Title or "2",
                 }
 
-                local configKey = "Keybind2_" .. KeybindConfig.Title
+                local configKey = BuildConfigKey("Keybind2", SectionScope, KeybindConfig.Title,
+                    KeybindConfig.Flag or KeybindConfig.ConfigKey or KeybindConfig.ID)
                 local shouldSave = KeybindConfig.Save ~= false
                 if shouldSave and type(ConfigData[configKey]) == "table" then
                     local saved = ConfigData[configKey]
@@ -6054,7 +6078,8 @@ GuiFunc:ToggleUI()
                 DropdownConfig.Default = DropdownConfig.Default or (DropdownConfig.Multi and {} or nil)
                 DropdownConfig.Callback = DropdownConfig.Callback or function() end
 
-                local configKey = "Dropdown_" .. DropdownConfig.Title
+                local configKey = BuildConfigKey("Dropdown", SectionScope, DropdownConfig.Title,
+                    DropdownConfig.Flag or DropdownConfig.ConfigKey or DropdownConfig.ID)
                 local shouldSave = DropdownConfig.Save ~= false
                 if shouldSave and ConfigData[configKey] ~= nil then
                     DropdownConfig.Default = ConfigData[configKey]
@@ -6412,6 +6437,7 @@ GuiFunc:ToggleUI()
                     Title = DropdownTitle,
                     Options = Values,
                     Default = Default,
+                    Flag = TargetCfg.Flag or TargetCfg.ConfigKey or TargetCfg.ID,
                     Callback = function(v)
                         Callback(v)
                         if Selector and v ~= Selector:Get() then Selector:Set(v) end
@@ -6465,6 +6491,7 @@ GuiFunc:ToggleUI()
                     Content = ToggleCfg.Content or Subtitle,
                     Default = Default,
                     Save = ToggleCfg.Save,
+                    Flag = ToggleCfg.Flag or ToggleCfg.ConfigKey or ToggleCfg.ID,
                     Keybind = ToggleCfg.Keybind,
                     KeybindSave = ToggleCfg.KeybindSave,
                     Callback = function(v)
@@ -7332,7 +7359,8 @@ function Items:AddDivider()
                 PresetConfig.Default = PresetConfig.Default or ""
                 PresetConfig.Callback = PresetConfig.Callback or function() end
                 
-                local configKey = "PresetManager_" .. PresetConfig.Title
+                local configKey = BuildConfigKey("PresetManager", SectionScope, PresetConfig.Title,
+                    PresetConfig.Flag or PresetConfig.ConfigKey or PresetConfig.ID)
                 local shouldSave = PresetConfig.Save ~= false
 
                 local presetFilePath = GameConfigFolder .. "/presets.json"
